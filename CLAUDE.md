@@ -23,11 +23,12 @@
 
 ## CLAUDE.md Network (Hub-and-Spoke)
 
-| Directory    | CLAUDE.md                                | Scope                                            |
-| ------------ | ---------------------------------------- | ------------------------------------------------ |
-| `/`          | This file                                | Hub — architecture, env vars, patterns, errors   |
-| `/exchange/` | [exchange/CLAUDE.md](exchange/CLAUDE.md) | Exchange adapters, ClickHouse, SSE, stream types |
-| `/data/`     | [data/CLAUDE.md](data/CLAUDE.md)         | Chart types, indicators, aggregation, layout     |
+| Directory       | CLAUDE.md                                      | Scope                                                                   |
+| --------------- | ---------------------------------------------- | ----------------------------------------------------------------------- |
+| `/`             | This file                                      | Hub — architecture, env vars, patterns, errors                          |
+| `/exchange/`    | [exchange/CLAUDE.md](exchange/CLAUDE.md)       | Exchange adapters, ClickHouse, SSE, stream types                        |
+| `/data/`        | [data/CLAUDE.md](data/CLAUDE.md)               | Chart types, indicators, aggregation, layout                            |
+| `/docs/audits/` | [docs/audits/CLAUDE.md](docs/audits/CLAUDE.md) | Statistical audits: bar-selection metrics (v1 threshold, v2 rank-based) |
 
 ---
 

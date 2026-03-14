@@ -219,7 +219,7 @@ pub(super) fn draw_bar_selection_stats(
     } else {
         f32::NAN
     };
-    let absorption = if dominant_up { mean_t_dn } else { mean_t_up };
+    // absorption removed — it was ρ=−1.00 with conviction (mathematical inverse); replaced by `edge`.
 
     // ── Climax concentration ───────────────────────────────────────────────
     let (top_n, top_up) = bars.iter().enumerate()
@@ -227,18 +227,28 @@ pub(super) fn draw_bar_selection_stats(
         .fold((0_usize, 0_usize), |(t, u), (_, b)| (t + 1, if b.is_up { u + 1 } else { u }));
     let climax_up_frac = if top_n > 0 { top_up as f32 / top_n as f32 } else { f32::NAN };
 
-    // ── Divergence signal detection ────────────────────────────────────────
-    // Climax divergence: peak-intensity direction opposes overall count direction.
-    let climax_divergence = !climax_up_frac.is_nan()
-        && (n_up >= n_dn) != (climax_up_frac >= 0.5);
+    // ── Continuous divergence scores — no threshold gates, always rankable ─
+    // climax_skew: (climax_up_frac − count_up_frac). Range [-1, +1].
+    //   Negative = climax direction opposes count direction (divergence signal).
+    //   Positive = climax reinforces count direction (aligned).
+    let climax_skew = if !climax_up_frac.is_nan() {
+        climax_up_frac - (n_up as f32 / n as f32)
+    } else {
+        f32::NAN
+    };
 
-    // Urgency-count split: the side with higher raw t/s ≠ the side winning more bars.
-    let urgency_count_diverge = !mean_raw_up.is_nan() && !mean_raw_dn.is_nan()
-        && (n_up >= n_dn) != (mean_raw_up >= mean_raw_dn);
+    // urgency_split: true when log2_ratio sign disagrees with bar-count direction.
+    // log2_ratio is already a continuous rankable score; this bool only triggers the ⚡ row.
+    let urgency_split = !log2_ratio.is_nan() && (n_up >= n_dn) != (log2_ratio >= 0.0);
 
-    // Conv-absorp contest: dominant side strong AND minority is fighting hard.
-    let conv_absorp_contest = !conviction.is_nan() && !absorption.is_nan()
-        && conviction > 1.5 && absorption > 0.60;
+    // edge: signed rank-normalized intensity edge (up_mean − dn_mean). Range [-1, +1].
+    //   Positive = up bars carried more intensity; negative = down bars led.
+    //   Replaces conviction+absorption pair (ρ=−1.00 — they are mathematical inverses).
+    let edge = if !mean_t_up.is_nan() && !mean_t_dn.is_nan() {
+        mean_t_up - mean_t_dn
+    } else {
+        f32::NAN
+    };
 
     // ── ASCII intensity bar ────────────────────────────────────────────────
     let fill = ((5.0 + iwds * 5.0).round() as usize).clamp(0, 10);
@@ -327,9 +337,16 @@ pub(super) fn draw_bar_selection_stats(
         };
         format!("◈ climax: {:.0}% {dir}  (of top-25% bars)", frac * 100.0)
     };
-    // Orange when diverging (peak direction opposes count direction), or when regime has a border.
-    let climax_color = if climax_divergence || border_col.is_some() { orange } else { amber_dim };
-    let climax_suffix = if !climax_up_frac.is_nan() && !climax_divergence { "  aligned ✓" } else { "" };
+    // climax_diverging: skew sign opposes count direction (continuous skew drives the test).
+    let climax_diverging = !climax_skew.is_nan()
+        && climax_skew * (n_up as f32 / n as f32 - 0.5) < 0.0;
+    // Orange when diverging or when regime label carries a border signal.
+    let climax_color = if climax_diverging || border_col.is_some() { orange } else { amber_dim };
+    let skew_str = if climax_skew.is_nan() {
+        "—".to_string()
+    } else {
+        format!("skew:{climax_skew:+.2}")
+    };
 
     // ── Inline interpretation suffixes ────────────────────────────────────
     let flow_suffix = {
@@ -347,11 +364,12 @@ pub(super) fn draw_bar_selection_stats(
         let dist = (auc - 0.5).abs();
         if dist < 0.05 { "← weak edge" } else if dist < 0.15 { "← moderate" } else { "← strong edge" }
     } else { "" };
-    let absorp_suffix = if !absorption.is_nan() {
-        if absorption < 0.30 { "← minority fading" }
-        else if absorption < 0.50 { "← minority active" }
-        else if absorption < 0.65 { "← minority fighting" }
-        else { "← heavy pushback" }
+    let edge_suffix = if !edge.is_nan() {
+        let ae = edge.abs();
+        if ae < 0.05 { "" }
+        else if ae < 0.15 { if edge > 0.0 { "← ↑ leads" } else { "← ↓ leads" } }
+        else if ae < 0.30 { if edge > 0.0 { "← ↑ edges" } else { "← ↓ edges" } }
+        else { if edge > 0.0 { "← ↑ dominant" } else { "← ↓ dominant" } }
     } else { "" };
 
     // ── Format helpers ─────────────────────────────────────────────────────
@@ -360,6 +378,7 @@ pub(super) fn draw_bar_selection_stats(
     let pct_s = |v: f32| -> String { if v.is_nan() { "—".to_string() } else { format!("{:.0}%", v * 100.0) } };
     let lg2_s = |v: f32| -> String { if v.is_nan() { "—".to_string() } else { format!("{v:+.2}") } };
     let con_s = |v: f32| -> String { if v.is_nan() { "—".to_string() } else { format!("{v:.2}×") } };
+    let edg_s = |v: f32| -> String { if v.is_nan() { "—".to_string() } else { format!("{v:+.2}") } };
 
     // ── Lines: (text, color, font_size) — Vec for conditional divergence rows ──
     let ts = 13.0_f32;
@@ -369,32 +388,26 @@ pub(super) fn draw_bar_selection_stats(
         (regime_label,                                                                                    regime_color, ts),
         (format!("{}  {urgency_suffix}", caption),                                                       dim_white,    sm),
         (format!("P(↑>↓): {}   log₂(↑/↓): {}  {auc_suffix}", pct_s(auc), lg2_s(log2_ratio)),           amber_dim,    sm),
-        (format!("conv: {}   absorp: {}  {absorp_suffix}", con_s(conviction), t_s(absorption)),          amber_dim,    sm),
-        (format!("{climax_line}{climax_suffix}"),                                                         climax_color, sm),
+        (format!("conv: {}   edge: {}  {edge_suffix}", con_s(conviction), edg_s(edge)),                  amber_dim,    sm),
+        (format!("{climax_line}  {skew_str}"),                                                            climax_color, sm),
     ];
 
-    // ── Telemetry: log all metrics + active signals on every selection change ──
-    {
-        let div_flags = [
-            if climax_divergence     { "CLIMAX"   } else { "-" },
-            if urgency_count_diverge { "SPLIT"    } else { "-" },
-            if conv_absorp_contest   { "CVAB"     } else { "-" },
-        ];
-        log::debug!(
-            "[bar-sel] n={n} up={up_pct:.0}% dn={dn_pct:.0}% \
-             climax={:.0}% iwds={iwds:+.2} auc={:.2} log2={:.2} \
-             conv={:.2} absorp={:.2} div=[{}]",
-            climax_up_frac * 100.0,
-            auc,
-            log2_ratio,
-            conviction,
-            absorption,
-            div_flags.join(","),
-        );
-    }
+    // ── Telemetry: continuous scalars only — no threshold flags, fully rankable ──
+    log::debug!(
+        "[bar-sel] n={n} up={up_pct:.0}% dn={dn_pct:.0}% \
+         climax={:.0}% iwds={iwds:+.2} auc={:.2} log2={:.2} \
+         conv={:.2} edge={:.2} skew={:.3} split={}",
+        climax_up_frac * 100.0,
+        auc,
+        log2_ratio,
+        conviction,
+        edge,
+        climax_skew,
+        if urgency_split { "1" } else { "0" },
+    );
 
     // ── Divergence rows (appended when signals are active) ─────────────────
-    if climax_divergence && !climax_up_frac.is_nan() {
+    if climax_diverging && !climax_up_frac.is_nan() {
         let (peak_side, peak_pct) = if climax_up_frac >= 0.5 {
             ("bulls", climax_up_frac * 100.0)
         } else {
@@ -402,7 +415,7 @@ pub(super) fn draw_bar_selection_stats(
         };
         let (count_side, count_pct) = if n_up >= n_dn { ("bull", up_pct) } else { ("bear", dn_pct) };
         lines.push((
-            format!("⚡ DIVERGES: {peak_side} {peak_pct:.0}% of peak moments"),
+            format!("⚡ DIVERGES: {peak_side} {peak_pct:.0}% of peak  skew:{climax_skew:+.2}"),
             orange, sm,
         ));
         lines.push((
@@ -410,16 +423,17 @@ pub(super) fn draw_bar_selection_stats(
             dim, sm,
         ));
     }
-    if urgency_count_diverge {
-        let urgency_side = if mean_raw_up >= mean_raw_dn { "buyers" } else { "sellers" };
+    if urgency_split {
+        let urgency_side = if log2_ratio >= 0.0 { "buyers" } else { "sellers" };
         let count_side   = if n_up >= n_dn { "bulls" } else { "bears" };
         lines.push((
-            format!("⚡ SPLIT: {urgency_side} faster, {count_side} win more bars"),
+            format!("⚡ SPLIT: {urgency_side} faster  log₂:{log2_ratio:+.2}"),
             orange, sm,
         ));
-    }
-    if conv_absorp_contest {
-        lines.push(("⚡ CONTESTED: high conv + heavy pushback".to_string(), orange, sm));
+        lines.push((
+            format!("   — {count_side} win more bars"),
+            dim, sm,
+        ));
     }
 
     // ── Layout ────────────────────────────────────────────────────────────
@@ -463,11 +477,15 @@ pub(super) fn draw_bar_selection_stats(
     let mut cur_y = y;
 
     // ── Header row: "{N} bars  ↑ N (%)  ↓ N (%)" on one line ────────────
+    // ⚠ noisy: IWDS CV=9.72 at n<30; warn users not to over-interpret small selections.
     let col_w = box_w / 3.0;
     let header = [
-        (format!("{distance} bars"),                neutral),
-        (format!("↑ {n_up}  ({up_pct:.0}%)"),       success),
-        (format!("↓ {n_dn}  ({dn_pct:.0}%)"),        danger),
+        (
+            if n < 30 { format!("{distance} bars  ⚠ noisy") } else { format!("{distance} bars") },
+            if n < 30 { orange } else { neutral },
+        ),
+        (format!("↑ {n_up}  ({up_pct:.0}%)"),  success),
+        (format!("↓ {n_dn}  ({dn_pct:.0}%)"),  danger),
     ];
     for (i, (text, color)) in header.iter().enumerate() {
         frame.fill_text(canvas::Text {
