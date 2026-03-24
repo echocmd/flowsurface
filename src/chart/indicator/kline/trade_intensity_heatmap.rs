@@ -57,6 +57,10 @@ struct HeatmapPoint {
     k_actual: u8,
     /// Candle direction (close >= open). Used for bar colouring.
     bullish: bool,
+    /// True if log₁₀(intensity) fell below the Adjusted Boxplot lower fence
+    /// (Hubert & Vandervieren 2008). Indicates anomalously low trade intensity
+    /// relative to the rolling window distribution.
+    is_anomaly: bool,
 }
 
 impl HeatmapPoint {
@@ -108,6 +112,86 @@ fn thermal_color(t: f32) -> Color {
     Color::from_rgb(r, g, b)
 }
 
+/// Compute the Medcouple statistic (Brys, Hubert & Struyf 2004) on an already-sorted slice.
+///
+/// MC measures robust skewness: MC > 0 = right-skewed, MC < 0 = left-skewed, MC = 0 = symmetric.
+/// O(n²) naive implementation — acceptable for n ≤ 7000 (~50ms worst case on Apple Silicon).
+///
+/// Reference: Hubert & Vandervieren (2008), "An adjusted boxplot for skewed distributions",
+/// Computational Statistics & Data Analysis, 52(12), 5186-5201.
+fn medcouple(sorted: &[f32]) -> f32 {
+    let n = sorted.len();
+    if n < 3 {
+        return 0.0;
+    }
+    let median = if n.is_multiple_of(2) {
+        (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0
+    } else {
+        sorted[n / 2]
+    };
+
+    // Collect all h(xi, xj) kernel values where xi <= median <= xj and xi != xj.
+    // h(xi, xj) = ((xj - median) + (xi - median)) / (xj - xi)
+    //           = ((xj + xi) - 2*median) / (xj - xi)
+    let mut h_values = Vec::new();
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let xi = sorted[i];
+            let xj = sorted[j];
+            // Only pairs where xi <= median <= xj contribute
+            if xi > median || xj < median {
+                continue;
+            }
+            let denom = xj - xi;
+            if denom.abs() < f32::EPSILON {
+                // Both equal to median → h = 0 by convention (sign function)
+                h_values.push(0.0f32);
+            } else {
+                h_values.push(((xj + xi) - 2.0 * median) / denom);
+            }
+        }
+    }
+
+    if h_values.is_empty() {
+        return 0.0;
+    }
+    // MC = median of all h values
+    h_values.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let m = h_values.len();
+    if m.is_multiple_of(2) {
+        (h_values[m / 2 - 1] + h_values[m / 2]) / 2.0
+    } else {
+        h_values[m / 2]
+    }
+}
+
+/// Adjusted Boxplot lower fence (Hubert & Vandervieren 2008).
+///
+/// Returns the fence value in log₁₀(intensity) space, or `None` if the window is too small
+/// or the IQR is zero (degenerate distribution).
+///
+/// For right-skewed data (MC > 0), the lower fence tightens: h_lower < 1.5.
+/// For left-skewed data (MC < 0), the lower fence loosens: h_lower > 1.5.
+fn adjusted_lower_fence(sorted: &[f32]) -> Option<f32> {
+    let n = sorted.len();
+    if n < 20 {
+        return None; // too few bars for stable fence
+    }
+    let q1 = sorted[n / 4];
+    let q3 = sorted[3 * n / 4];
+    let iqr = q3 - q1;
+    if iqr <= f32::EPSILON {
+        return None; // degenerate — all values clustered
+    }
+    let mc = medcouple(sorted);
+    let h_lower = if mc >= 0.0 {
+        1.5 * (-4.0 * mc).exp()
+    } else {
+        1.5 * (-3.0 * mc).exp()
+    };
+    Some(q1 - h_lower * iqr)
+}
+
 /// Trade intensity heatmap indicator.
 ///
 /// Distinct from [`TradeIntensityIndicator`] (raw single-colour bars) — this
@@ -129,14 +213,20 @@ pub struct TradeIntensityHeatmapIndicator {
     sorted: Vec<f32>,
     /// Number of tickseries datapoints processed so far (global index).
     next_idx: usize,
+    /// When true, compute Adjusted Boxplot (Hubert 2008) lower fence and flag anomalous bars.
+    anomaly_fence_enabled: bool,
 }
 
 impl TradeIntensityHeatmapIndicator {
     pub fn new() -> Self {
-        Self::with_lookback(2000)
+        Self::with_config(2000, true)
     }
 
     pub fn with_lookback(lookback: usize) -> Self {
+        Self::with_config(lookback, true)
+    }
+
+    pub fn with_config(lookback: usize, anomaly_fence: bool) -> Self {
         Self {
             cache: Caches::default(),
             data: Vec::new(),
@@ -144,6 +234,7 @@ impl TradeIntensityHeatmapIndicator {
             ring: VecDeque::new(),
             sorted: Vec::with_capacity(lookback + 1),
             next_idx: 0,
+            anomaly_fence_enabled: anomaly_fence,
         }
     }
 
@@ -189,6 +280,7 @@ impl TradeIntensityHeatmapIndicator {
                     bin: 0,
                     k_actual: 0,
                     bullish: false,
+                    is_anomaly: false,
                 },
             );
         }
@@ -208,11 +300,18 @@ impl TradeIntensityHeatmapIndicator {
             t_val,
             n,
         );
+        let is_anomaly = if self.anomaly_fence_enabled && n >= 20 {
+            adjusted_lower_fence(&self.sorted)
+                .is_some_and(|fence| log_val < fence)
+        } else {
+            false
+        };
         self.data.push(HeatmapPoint {
             intensity,
             bin,
             k_actual,
             bullish,
+            is_anomaly,
         });
 
         // --- Push current bar into sorted window ---
@@ -331,9 +430,10 @@ impl TradeIntensityHeatmapIndicator {
         }
 
         let tooltip = |p: &HeatmapPoint, _next: Option<&HeatmapPoint>| {
+            let suffix = if p.is_anomaly { " [ANOMALY]" } else { "" };
             PlotTooltip::new(format!(
-                "Intensity: {:.1} t/s (bin {}/{})",
-                p.intensity, p.bin, p.k_actual
+                "Intensity: {:.1} t/s (bin {}/{}){}",
+                p.intensity, p.bin, p.k_actual, suffix
             ))
         };
 
@@ -655,6 +755,14 @@ impl KlineIndicatorImpl for TradeIntensityHeatmapIndicator {
             .get(storage_idx as usize)
             .filter(|p| p.bin != 0) // bin=0 is a sentinel for bars with no microstructure
             .map(|p| thermal_color(p.t()))
+    }
+
+    /// Return bright yellow outline for bars flagged by the Adjusted Boxplot fence.
+    fn anomaly_outline_color(&self, storage_idx: u64) -> Option<Color> {
+        self.data
+            .get(storage_idx as usize)
+            .filter(|p| p.is_anomaly)
+            .map(|_| Color::from_rgb(1.0, 0.95, 0.0)) // bright yellow
     }
 
     fn data_len(&self) -> usize {

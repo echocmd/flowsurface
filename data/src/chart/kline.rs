@@ -347,6 +347,9 @@ fn default_thermal_wicks() -> bool {
 fn default_show_sessions() -> bool {
     false
 }
+fn default_anomaly_fence() -> bool {
+    true
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Deserialize, Serialize)]
 pub struct Config {
@@ -362,6 +365,11 @@ pub struct Config {
     /// Overlay NY/London/Tokyo session boundary lines on the chart.
     #[serde(default = "default_show_sessions")]
     pub show_sessions: bool,
+    /// Enable Adjusted Boxplot (Hubert 2008) outlier fence for intensity heatmap.
+    /// Flags bars with anomalously low trade intensity using a Medcouple-adapted
+    /// IQR fence that accounts for the right-skewed intensity distribution.
+    #[serde(default = "default_anomaly_fence")]
+    pub anomaly_fence: bool,
 }
 
 impl Default for Config {
@@ -371,6 +379,7 @@ impl Default for Config {
             intensity_lookback: default_intensity_lookback(),
             thermal_wicks: default_thermal_wicks(),
             show_sessions: default_show_sessions(),
+            anomaly_fence: default_anomaly_fence(),
         }
     }
 }

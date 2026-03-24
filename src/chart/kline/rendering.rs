@@ -54,6 +54,7 @@ pub(crate) fn draw_candle_dp(
     kline: &Kline,
     thermal_body_color: Option<iced::Color>,
     thermal_wick_color: Option<iced::Color>,
+    anomaly_outline_color: Option<iced::Color>,
 ) {
     let y_open = price_to_y(kline.open);
     let y_high = price_to_y(kline.high);
@@ -73,6 +74,21 @@ pub(crate) fn draw_candle_dp(
         Size::new(candle_width, (y_open - y_close).abs()),
         body_color,
     );
+
+    // Anomaly outline: bright stroke around the candle body (Adjusted Boxplot fence).
+    if let Some(outline_color) = anomaly_outline_color {
+        let body_rect = iced::Rectangle::new(
+            Point::new(x_position - (candle_width / 2.0), y_open.min(y_close)),
+            Size::new(candle_width, (y_open - y_close).abs().max(1.0)),
+        );
+        frame.stroke_rectangle(
+            body_rect.position(),
+            body_rect.size(),
+            canvas::Stroke::default()
+                .with_color(outline_color)
+                .with_width(1.5),
+        );
+    }
 
     // Wick: thermal colour (merged) or green/red direction, per "Thermal Wicks" setting.
     let wick_color = thermal_wick_color.unwrap_or(direction_color);

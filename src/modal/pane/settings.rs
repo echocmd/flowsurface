@@ -589,6 +589,19 @@ pub fn kline_cfg_view<'a>(
                     )
                 });
 
+            let anomaly_fence_toggle = checkbox(cfg.anomaly_fence)
+                .label("Anomaly Fence (Hubert 2008)")
+                .on_toggle(move |value| {
+                    Message::VisualConfigChanged(
+                        pane,
+                        VisualConfig::Kline(data::chart::kline::Config {
+                            anomaly_fence: value,
+                            ..cfg
+                        }),
+                        false,
+                    )
+                });
+
             let session_toggle = checkbox(cfg.show_sessions)
                 .label("Session Lines (NY / LDN / TKY)")
                 .on_toggle(move |value| {
@@ -640,6 +653,7 @@ pub fn kline_cfg_view<'a>(
                     .spacing(8)
                     .align_y(Alignment::Center),
                     thermal_wicks_toggle,
+                    anomaly_fence_toggle,
                     session_toggle,
                 ]
                 .spacing(8),

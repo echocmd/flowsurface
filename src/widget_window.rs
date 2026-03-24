@@ -329,6 +329,7 @@ impl canvas::Program<WidgetMessage> for WidgetState {
                     kline,
                     None,
                     None,
+                    None,
                 );
             }
 

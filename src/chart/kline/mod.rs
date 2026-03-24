@@ -231,8 +231,9 @@ fn make_indicator_with_config(
             ),
         ),
         KlineIndicator::TradeIntensityHeatmap => Box::new(
-            indicator::kline::trade_intensity_heatmap::TradeIntensityHeatmapIndicator::with_lookback(
+            indicator::kline::trade_intensity_heatmap::TradeIntensityHeatmapIndicator::with_config(
                 cfg.intensity_lookback,
+                cfg.anomaly_fence,
             ),
         ),
         other => indicator::kline::make_empty(other),
@@ -1949,9 +1950,12 @@ impl canvas::Program<Message> for KlineChart {
                         interval_to_x,
                         |frame, visual_idx, x_position, kline, _| {
                             // visual_idx 0 = newest = highest storage index
+                            let storage_idx = total_len.saturating_sub(1 + visual_idx);
                             let thermal_color = heatmap_indi.and_then(|h| {
-                                let storage_idx = total_len.saturating_sub(1 + visual_idx);
                                 h.thermal_body_color(storage_idx as u64)
+                            });
+                            let anomaly_color = heatmap_indi.and_then(|h| {
+                                h.anomaly_outline_color(storage_idx as u64)
                             });
                             // Wick: same thermal colour as body when thermal_wicks=true,
                             // otherwise falls back to direction green/red (None → unwrap_or).
@@ -1965,6 +1969,7 @@ impl canvas::Program<Message> for KlineChart {
                                 kline,
                                 thermal_color,
                                 wick_color,
+                                anomaly_color,
                             );
                         },
                     );
