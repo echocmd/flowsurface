@@ -94,7 +94,7 @@ SELECT ...
 FROM opendeviationbar_cache.open_deviation_bars
 WHERE symbol = '{symbol}' AND threshold_decimal_bps = {threshold}
   AND ouroboros_mode = '{mode}'
-ORDER BY close_time_ms DESC
+ORDER BY close_time_us DESC
 LIMIT {adaptive_limit}   -- 20K for BPR25, 13K floor for all others
 FORMAT JSONEachRow
 ```
@@ -103,8 +103,8 @@ FORMAT JSONEachRow
 
 ```sql
 SELECT ...
-WHERE ... AND close_time_ms BETWEEN {start} AND {end}
-ORDER BY close_time_ms DESC
+WHERE ... AND close_time_us BETWEEN {start} AND {end}
+ORDER BY close_time_us DESC
 LIMIT 2000               -- scroll-left pagination: 2K bars per batch
 FORMAT JSONEachRow
 ```
@@ -115,7 +115,7 @@ FORMAT JSONEachRow
 
 ### Streaming (ClickHouse Polling)
 
-`connect_kline_stream()` polls ClickHouse every 5 seconds for new bars with `close_time_ms > last_ts`. Uses ASC ordering for incremental updates.
+`connect_kline_stream()` polls ClickHouse every 5 seconds for new bars with `close_time_us > last_ts` (last_ts in µs). Uses ASC ordering for incremental updates.
 
 ### SSE Stream (Live Bars)
 
