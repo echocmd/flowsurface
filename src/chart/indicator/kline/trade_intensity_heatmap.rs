@@ -57,15 +57,10 @@ struct HeatmapPoint {
     k_actual: u8,
     /// Candle direction (close >= open). Used for bar colouring.
     bullish: bool,
-    /// True if log₁₀(intensity) fell below the Adjusted Boxplot lower fence.
+    /// True if this bar's intensity is in the bottom α% of the rolling window.
     is_anomaly: bool,
-    /// Conformal p-value: fraction of window values at least as extreme.
-    /// 0.0 = most anomalous (all window values are less extreme), 1.0 = normal.
-    /// Only meaningful when `is_anomaly` is true.
+    /// Conformal p-value: empirical rank / (n+1). Lower = more anomalous.
     anomaly_pvalue: f32,
-    /// CUSUM accumulator for sustained regime shift detection.
-    /// Positive values indicate a sustained shift below the rolling median.
-    cusum: f32,
 }
 
 impl HeatmapPoint {
@@ -119,9 +114,6 @@ fn thermal_color(t: f32) -> Color {
 
 use data::anomaly;
 
-const CUSUM_ALLOWANCE: f32 = anomaly::DEFAULT_CUSUM_ALLOWANCE;
-const CUSUM_THRESHOLD: f32 = anomaly::DEFAULT_CUSUM_THRESHOLD;
-
 /// Trade intensity heatmap indicator.
 ///
 /// Distinct from [`TradeIntensityIndicator`] (raw single-colour bars) — this
@@ -143,10 +135,8 @@ pub struct TradeIntensityHeatmapIndicator {
     sorted: Vec<f32>,
     /// Number of tickseries datapoints processed so far (global index).
     next_idx: usize,
-    /// When true, compute Adjusted Boxplot fence and flag anomalous bars.
+    /// When true, flag bars in the bottom α-percentile of the rolling window.
     anomaly_fence_enabled: bool,
-    /// CUSUM accumulator for detecting sustained downward intensity shifts.
-    cusum_neg: f32,
 }
 
 impl TradeIntensityHeatmapIndicator {
@@ -163,7 +153,6 @@ impl TradeIntensityHeatmapIndicator {
             sorted: Vec::with_capacity(lookback + 1),
             next_idx: 0,
             anomaly_fence_enabled: anomaly_fence,
-            cusum_neg: 0.0,
         }
     }
 
@@ -172,7 +161,6 @@ impl TradeIntensityHeatmapIndicator {
         self.sorted.clear(); // Vec::clear keeps allocation — no realloc on next rebuild
         self.data.clear(); // Vec::clear keeps allocation
         self.next_idx = 0;
-        self.cusum_neg = 0.0;
     }
 
     /// Process a single bar at `idx` with the given `intensity` and candle `bullish` direction.
@@ -212,7 +200,6 @@ impl TradeIntensityHeatmapIndicator {
                     bullish: false,
                     is_anomaly: false,
                     anomaly_pvalue: 1.0,
-                    cusum: 0.0,
                 },
             );
         }
@@ -232,19 +219,13 @@ impl TradeIntensityHeatmapIndicator {
             t_val,
             n,
         );
-        // Two-layer anomaly detection — O(log n) per bar, zero magic numbers:
-        // 1. Conformal rank: is this bar in the bottom α% of the rolling window?
-        // 2. CUSUM: sustained regime shift accumulator
-        let (is_anomaly, anomaly_pvalue, cusum) = if self.anomaly_fence_enabled && n >= 20 {
+        // Conformal rank anomaly detection — O(log n) per bar, zero magic numbers.
+        // Flags bars in the bottom α% of the rolling window.
+        let (is_anomaly, anomaly_pvalue) = if self.anomaly_fence_enabled && n >= 20 {
             let pval = anomaly::conformal_pvalue(&self.sorted, log_val);
-            let is_anom = pval < anomaly::DEFAULT_ANOMALY_ALPHA;
-            // CUSUM: accumulate evidence of sustained below-median intensity
-            let median = self.sorted[n / 2];
-            self.cusum_neg = anomaly::cusum_negative(self.cusum_neg, log_val, median, CUSUM_ALLOWANCE);
-            (is_anom, pval, self.cusum_neg)
+            (pval < anomaly::DEFAULT_ANOMALY_ALPHA, pval)
         } else {
-            self.cusum_neg = 0.0;
-            (false, 1.0, 0.0)
+            (false, 1.0)
         };
         self.data.push(HeatmapPoint {
             intensity,
@@ -253,7 +234,6 @@ impl TradeIntensityHeatmapIndicator {
             bullish,
             is_anomaly,
             anomaly_pvalue,
-            cusum,
         });
 
         // --- Push current bar into sorted window ---
@@ -379,9 +359,6 @@ impl TradeIntensityHeatmapIndicator {
             if p.is_anomaly {
                 let pct = (1.0 - p.anomaly_pvalue) * 100.0;
                 text.push_str(&format!(" [ANOMALY p={:.3} ({:.1}%ile)]", p.anomaly_pvalue, pct));
-            }
-            if p.cusum > CUSUM_THRESHOLD {
-                text.push_str(&format!(" [REGIME SHIFT S={:.1}]", p.cusum));
             }
             PlotTooltip::new(text)
         };
@@ -706,18 +683,13 @@ impl KlineIndicatorImpl for TradeIntensityHeatmapIndicator {
             .map(|p| thermal_color(p.t()))
     }
 
-    /// Return severity-graded outline for anomalous bars.
-    /// Yellow (p≈α) → red (p→0) based on conformal p-value. CUSUM regime shifts: white.
+    /// Return severity-graded outline for anomalous bars (conformal rank < α).
+    /// Yellow (p≈α) → red (p→0) based on conformal p-value.
     fn anomaly_outline_color(&self, storage_idx: u64) -> Option<Color> {
         self.data.get(storage_idx as usize).and_then(|p| {
-            if p.cusum > CUSUM_THRESHOLD {
-                return Some(Color::from_rgb(1.0, 1.0, 1.0));
-            }
             if !p.is_anomaly {
                 return None;
             }
-            // Severity: p-value normalized to [0,1] within the anomaly range [0, α].
-            // p near α → yellow (mild), p near 0 → red (extreme).
             let alpha = anomaly::DEFAULT_ANOMALY_ALPHA;
             let t = (1.0 - p.anomaly_pvalue / alpha).clamp(0.0, 1.0);
             Some(Color::from_rgb(1.0, 0.95 * (1.0 - t), 0.0))
