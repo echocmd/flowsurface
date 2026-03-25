@@ -293,10 +293,11 @@ pub async fn query(sql: &str) -> Result<String, AdapterError> {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
         log::error!("[CH] HTTP {status}: {body} — SQL: {sql_preview}…");
+        let body_preview = &body[..body.len().min(200)];
         tg_alert!(
             crate::telegram::Severity::Critical,
             "clickhouse",
-            "CH HTTP {status}: {body}"
+            "CH HTTP {status}: {body_preview} — SQL: {sql_preview}…"
         );
         return Err(AdapterError::ParseError(format!(
             "ClickHouse HTTP {}: {}",
@@ -925,11 +926,15 @@ pub fn connect_sse_stream(
                     }
                     OdbSseEvent::Heartbeat => {}
                     OdbSseEvent::DeserializationError { error, raw_data } => {
+                        let preview = &raw_data[..raw_data.len().min(120)];
                         log::warn!(
-                            "[SSE] deser error: {error}, data: {}",
-                            &raw_data[..raw_data.len().min(200)]
+                            "[SSE] deser error: {error}, data: {preview}"
                         );
-                        tg_alert!(crate::telegram::Severity::Warning, "sse", "SSE deser error");
+                        tg_alert!(
+                            crate::telegram::Severity::Warning,
+                            "sse",
+                            "SSE deser error for {symbol}@{threshold_dbps}: {error} — data: {preview}"
+                        );
                     }
                     OdbSseEvent::Disconnected(reason) => {
                         SSE_CONNECTED.store(false, Ordering::Relaxed);
@@ -937,7 +942,7 @@ pub fn connect_sse_stream(
                         tg_alert!(
                             crate::telegram::Severity::Warning,
                             "sse",
-                            "SSE disconnected"
+                            "SSE disconnected for {symbol}@{threshold_dbps}: {reason}"
                         );
                         break;
                     }
