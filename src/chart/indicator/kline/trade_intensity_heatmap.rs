@@ -172,6 +172,16 @@ fn medcouple(sorted: &[f32]) -> f32 {
     }
 }
 
+/// Maximum elements used for Medcouple computation. Beyond this, we subsample
+/// uniformly from the sorted window. Keeps Medcouple at O(CAP²) = O(250K) instead
+/// of O(n²) = O(4M) at n=2000.
+const MEDCOUPLE_SUBSAMPLE_CAP: usize = 500;
+
+/// How often to recompute the Medcouple fence during rebuild (every N bars).
+/// Between recomputes, the cached fence value is reused. The Medcouple is a
+/// robust statistic that changes slowly with single-element window updates.
+const FENCE_RECOMPUTE_INTERVAL: usize = 100;
+
 /// Adjusted Boxplot lower fence (Hubert & Vandervieren 2008).
 ///
 /// Returns the fence value in log₁₀(intensity) space, or `None` if the window is too small
@@ -179,18 +189,28 @@ fn medcouple(sorted: &[f32]) -> f32 {
 ///
 /// For right-skewed data (MC > 0), the lower fence tightens: h_lower < 1.5.
 /// For left-skewed data (MC < 0), the lower fence loosens: h_lower > 1.5.
+///
+/// When `sorted.len() > MEDCOUPLE_SUBSAMPLE_CAP`, the Medcouple is computed on a
+/// uniform subsample to bound the O(n²) cost.
 fn adjusted_lower_fence(sorted: &[f32]) -> Option<f32> {
     let n = sorted.len();
     if n < 20 {
-        return None; // too few bars for stable fence
+        return None;
     }
     let q1 = sorted[n / 4];
     let q3 = sorted[3 * n / 4];
     let iqr = q3 - q1;
     if iqr <= f32::EPSILON {
-        return None; // degenerate — all values clustered
+        return None;
     }
-    let mc = medcouple(sorted);
+    // Subsample if window exceeds cap — uniform stride preserves distribution shape.
+    let mc = if n <= MEDCOUPLE_SUBSAMPLE_CAP {
+        medcouple(sorted)
+    } else {
+        let step = n / MEDCOUPLE_SUBSAMPLE_CAP;
+        let sub: Vec<f32> = sorted.iter().step_by(step).copied().collect();
+        medcouple(&sub)
+    };
     let h_lower = if mc >= 0.0 {
         1.5 * (-4.0 * mc).exp()
     } else {
@@ -222,6 +242,11 @@ pub struct TradeIntensityHeatmapIndicator {
     next_idx: usize,
     /// When true, compute Adjusted Boxplot (Hubert 2008) lower fence and flag anomalous bars.
     anomaly_fence_enabled: bool,
+    /// Cached fence value from the last Medcouple computation (log₁₀ space).
+    /// Recomputed every `FENCE_RECOMPUTE_INTERVAL` bars to avoid O(n²) per bar.
+    cached_fence: Option<f32>,
+    /// Bar count at which `cached_fence` was last computed.
+    fence_computed_at: usize,
 }
 
 impl TradeIntensityHeatmapIndicator {
@@ -238,6 +263,8 @@ impl TradeIntensityHeatmapIndicator {
             sorted: Vec::with_capacity(lookback + 1),
             next_idx: 0,
             anomaly_fence_enabled: anomaly_fence,
+            cached_fence: None,
+            fence_computed_at: 0,
         }
     }
 
@@ -246,6 +273,8 @@ impl TradeIntensityHeatmapIndicator {
         self.sorted.clear(); // Vec::clear keeps allocation — no realloc on next rebuild
         self.data.clear(); // Vec::clear keeps allocation
         self.next_idx = 0;
+        self.cached_fence = None;
+        self.fence_computed_at = 0;
     }
 
     /// Process a single bar at `idx` with the given `intensity` and candle `bullish` direction.
@@ -303,9 +332,15 @@ impl TradeIntensityHeatmapIndicator {
             t_val,
             n,
         );
+        // Anomaly detection: use cached fence, recompute periodically.
+        // O(1) per bar (cache hit) instead of O(n²) per bar (full Medcouple).
         let is_anomaly = if self.anomaly_fence_enabled && n >= 20 {
-            adjusted_lower_fence(&self.sorted)
-                .is_some_and(|fence| log_val < fence)
+            let bars_since = self.data.len().saturating_sub(self.fence_computed_at);
+            if bars_since >= FENCE_RECOMPUTE_INTERVAL || self.cached_fence.is_none() {
+                self.cached_fence = adjusted_lower_fence(&self.sorted);
+                self.fence_computed_at = self.data.len();
+            }
+            self.cached_fence.is_some_and(|fence| log_val < fence)
         } else {
             false
         };
