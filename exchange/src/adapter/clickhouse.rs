@@ -1118,6 +1118,17 @@ pub async fn fetch_catchup(
     symbol: &str,
     threshold_dbps: u32,
 ) -> Result<CatchupResult, AdapterError> {
+    if !sse_enabled() {
+        log::debug!("[catchup] SSE disabled — skipping gap-fill for {symbol}@{threshold_dbps}");
+        return Ok(CatchupResult {
+            trades: vec![],
+            through_agg_id: None,
+            partial: false,
+            warnings: vec![],
+            request_uuid: uuid::Uuid::nil(),
+        });
+    }
+
     let request_uuid = uuid::Uuid::new_v4();
     log::info!("[catchup] {symbol}@{threshold_dbps}: starting, uuid={request_uuid}");
 

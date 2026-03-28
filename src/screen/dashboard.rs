@@ -539,7 +539,12 @@ impl Dashboard {
                 symbol,
                 threshold_dbps,
             } => {
-                if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window.id, pane_id) {
+                if !adapter::clickhouse::sse_enabled() {
+                    log::debug!(
+                        "[catchup] SSE disabled — skipping gap-fill for pane={pane_id}: \
+                         {symbol}@{threshold_dbps}"
+                    );
+                } else if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window.id, pane_id) {
                     log::info!("[catchup] ODB pane={pane_id}: {symbol}@{threshold_dbps}");
                     pane_state.status =
                         pane::Status::Stale("Fetching trades to fill gap...".into());
