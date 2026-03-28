@@ -66,9 +66,9 @@ Since these binaries are currently unsigned they might get flagged.
 -   [Git version control system](https://git-scm.com/)
 -   System dependencies:
     -   **Linux**:
-        -   Debian/Ubuntu: `sudo apt install build-essential pkg-config libasound2-dev`
-        -   Arch: `sudo pacman -S base-devel alsa-lib`
-        -   Fedora: `sudo dnf install gcc make alsa-lib-devel`
+        -   Debian/Ubuntu: `sudo apt install build-essential pkg-config libasound2-dev libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxkbcommon-dev libwayland-dev libdbus-1-dev`
+        -   Arch / Manjaro: `sudo pacman -S base-devel alsa-lib libx11 libxrandr libxi libxcursor libxkbcommon wayland dbus`
+        -   Fedora: `sudo dnf install gcc make alsa-lib-devel libX11-devel libXrandr-devel libXi-devel libXcursor-devel libxkbcommon-devel wayland-devel dbus-devel`
     -   **macOS**: Install Xcode Command Line Tools: `xcode-select --install`
     -   **Windows**: No additional dependencies required
 
@@ -94,6 +94,54 @@ cd flowsurface
 cargo build --release
 cargo run --release
 ```
+
+### Manjaro Linux — Step-by-Step Guide
+
+This fork has been patched to build natively on Manjaro (and Arch-based) Linux. Follow these steps:
+
+#### 1. Install Rust
+
+If you don't have Rust installed yet:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source "$HOME/.cargo/env"
+rustup default stable
+```
+
+#### 2. Install System Dependencies
+
+```bash
+sudo pacman -S base-devel git alsa-lib libx11 libxrandr libxi libxcursor libxkbcommon wayland dbus
+```
+
+> **Note:** `dbus` is usually pre-installed on Manjaro. If you hit a linker error mentioning `libdbus-1` during the build, install `dbus` or `dbus-glib` via `sudo pacman -S dbus`.
+
+#### 3. Clone and Build
+
+```bash
+git clone https://github.com/echocmd/flowsurface.git
+cd flowsurface
+cargo build --release
+```
+
+The first build will take a few minutes while Cargo downloads and compiles all dependencies.
+
+#### 4. Run
+
+```bash
+cargo run --release
+```
+
+Or run the compiled binary directly:
+
+```bash
+./target/release/flowsurface
+```
+
+#### Known Limitations in This Fork
+
+-   **ZigZag Swing Structure Overlay** is not available. The private `qta` crate that powers this indicator has been removed so the project compiles on Linux. All other chart types and indicators work normally.
 
 ### Credits and thanks to
 
