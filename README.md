@@ -1,12 +1,57 @@
 # Flowsurface
 
-[![Crates.io](https://img.shields.io/crates/v/flowsurface)](https://crates.io/crates/flowsurface)
-[![Lint](https://github.com/flowsurface-rs/flowsurface/actions/workflows/lint.yml/badge.svg)](https://github.com/flowsurface-rs/flowsurface/actions/workflows/lint.yml)
-[![Format](https://github.com/flowsurface-rs/flowsurface/actions/workflows/format.yml/badge.svg)](https://github.com/flowsurface-rs/flowsurface/actions/workflows/format.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://github.com/flowsurface-rs/flowsurface/blob/main/LICENSE)
 [![Made with iced](https://iced.rs/badge.svg)](https://github.com/iced-rs/iced)
 
-An experimental open-source desktop charting application. Supports Binance, Bybit, Hyperliquid and OKX
+An experimental open-source desktop charting application. Supports Binance, Bybit, Hyperliquid and OKX.
+
+> **This is a community fork** of [terrylica/flowsurface](https://github.com/terrylica/flowsurface), which is itself based on [flowsurface-rs/flowsurface](https://github.com/flowsurface-rs/flowsurface).
+> It adds open-source build support (removing the private `qta` dependency) and includes all ODB chart extensions from the terrylica fork.
+
+---
+
+## What's Different in This Fork?
+
+### ✅ Open-Source Build Support (Linux / macOS / Windows)
+
+The terrylica fork depends on a private `qta` crate that is not publicly available, preventing compilation. This fork removes that dependency to enable open builds:
+
+- **X11 and Wayland rendering** have been re-enabled in the `iced` dependency, so the app draws correctly on any Linux desktop.
+- **The `qta` dependency has been removed.** The ZigZag swing-structure overlay it powered is stubbed out — the menu entry is still visible but the overlay renders nothing until a compatible open-source replacement is available.
+
+### 🆕 Open Deviation Bar (ODB) Charts
+
+Inherited from the upstream fork. ODB is a range-bar chart type where each bar closes once price deviates a configurable percentage from its open, rather than after a fixed time interval.
+
+Four threshold presets are available. To open an ODB chart pane, right-click the dashboard and choose **"Open Deviation Bar Chart"**, then select a threshold:
+
+| Label  | Threshold | Meaning                              |
+|--------|-----------|--------------------------------------|
+| BPR10  | 100 dbps  | Bar closes after 0.10% price move   |
+| BPR25  | 250 dbps  | Bar closes after 0.25% price move   |
+| BPR50  | 500 dbps  | Bar closes after 0.50% price move   |
+| BPR75  | 750 dbps  | Bar closes after 0.75% price move   |
+
+> **Note:** ODB charts require a running ClickHouse instance populated by [opendeviationbar-py](https://github.com/terrylica/opendeviationbar-py). Without it the pane will remain in "Fetching Klines…" state. The rest of the app (all standard chart types) works without ClickHouse.
+
+### 🆕 Additional Indicators
+
+These indicators are present in this fork and are accessible from the indicator panel (settings gear icon on any Candlestick or ODB chart pane):
+
+| Indicator | Works on | Description |
+|-----------|----------|-------------|
+| **Volume** | Time / Tick / ODB | Bar volume subplot |
+| **Delta** | Time / Tick / ODB | Buy minus sell volume per bar |
+| **Trade Count** | Time / Tick / ODB | Number of trades per bar |
+| **OFI** | Time / Tick / ODB | Order Flow Imbalance: (buy_vol − sell_vol) / total_vol, range [−1, 1] |
+| **OFI Σ EMA** | Time / Tick / ODB | Cumulative OFI smoothed with an EMA |
+| **Trade Intensity** | ODB only | Trades per second per bar — reveals urgency; works best on ODB bars where duration varies |
+| **Intensity Heatmap** | ODB only | Rolling log-quantile percentile heatmap of trade intensity, coloured blue→red |
+| **RSI** | Time / Tick / ODB | 14-period Relative Strength Index subplot with 70/30 reference lines |
+| **ZigZag** *(stub)* | — | Menu entry is visible but **renders nothing** — requires the `qta` crate which has been removed as it is not publicly available |
+| **Open Interest** | Perps only | Open interest subplot (perpetual futures markets only) |
+
+---
 
 <div align="center">
   <img
@@ -16,15 +61,20 @@ An experimental open-source desktop charting application. Supports Binance, Bybi
   />
 </div>
 
-### Key Features
+## Key Features
 
--   Multiple chart/panel types:
-    -   **Heatmap (Historical DOM):** Uses live trades and L2 orderbook to create a time-series heatmap chart. Supports customizable price grouping, different time aggregations, fixed or visible range volume profiles.
-    -   **Candlestick:** Traditional kline chart supporting both time-based and custom tick-based intervals.
-    -   **Footprint:** Price grouped and interval aggregated views for trades on top of a candlestick chart. Supports different clustering methods, configurable imbalance and naked-POC studies.
-    -   **Time & Sales:** Scrollable list of live trades.
-    -   **DOM (Depth of Market) / Ladder:** Displays current L2 orderbook alongside recent trade volumes on grouped price levels.
-    -   **Comparison:** Line graph for comparing multiple data sources, normalized by kline `close` prices on a percentage scale
+### Chart & Panel Types
+
+-   **Heatmap (Historical DOM):** Uses live trades and L2 orderbook to create a time-series heatmap chart. Supports customizable price grouping, different time aggregations, fixed or visible range volume profiles.
+-   **Candlestick:** Traditional kline chart supporting both time-based and custom tick-based intervals.
+-   **Footprint:** Price grouped and interval aggregated views for trades on top of a candlestick chart. Supports different clustering methods, configurable imbalance and naked-POC studies.
+-   **Open Deviation Bar (ODB) Chart** *(fork addition — requires ClickHouse)*: Range-bar chart where each bar closes once price deviates a set percentage from its open. See threshold table in the "What's Different" section above.
+-   **Time & Sales:** Scrollable list of live trades.
+-   **DOM (Depth of Market) / Ladder:** Displays current L2 orderbook alongside recent trade volumes on grouped price levels.
+-   **Comparison:** Line graph for comparing multiple data sources, normalized by kline `close` prices on a percentage scale.
+
+### Other Features
+
 -   Real-time sound effects driven by trade streams
 -   Multi window/monitor support
 -   Pane linking for quickly switching tickers across multiple panes
@@ -45,53 +95,37 @@ An experimental open-source desktop charting application. Supports Binance, Bybi
 
 ## Installation
 
-### Method 1: Prebuilt Binaries
-
-Standalone executables are available for Windows, macOS, and Linux on the [Releases page](https://github.com/flowsurface-rs/flowsurface/releases).
-
-<details>
-<summary><strong>Having trouble running the file? (Permission/Security warnings)</strong></summary>
- 
-Since these binaries are currently unsigned they might get flagged.
-
--   **Windows**: If you see a "Windows protected your PC" pop-up, click **More info** -> **Run anyway**.
--   **macOS**: If you see "Developer cannot be verified", control-click (right-click) the app and select **Open**, or go to _System Settings > Privacy & Security_ to allow it.
-</details>
-
-### Method 2: Build from Source
+### Build from Source
 
 #### Requirements
 
 -   [Rust toolchain](https://www.rust-lang.org/tools/install)
 -   [Git version control system](https://git-scm.com/)
 -   System dependencies:
-    -   **Linux**:
-        -   Debian/Ubuntu: `sudo apt install build-essential pkg-config libasound2-dev`
-        -   Arch: `sudo pacman -S base-devel alsa-lib`
-        -   Fedora: `sudo dnf install gcc make alsa-lib-devel`
+    -   **Manjaro / Arch Linux:**
+        ```bash
+        sudo pacman -S base-devel rustup libx11 libxrandr libxi libxcursor libxkbcommon wayland mesa dbus alsa-lib
+        rustup default stable
+        ```
+    -   **Debian / Ubuntu:**
+        ```bash
+        sudo apt install build-essential pkg-config libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxkbcommon-dev libwayland-dev libdbus-1-dev libasound2-dev
+        ```
+    -   **Fedora:**
+        ```bash
+        sudo dnf install gcc make libX11-devel libXrandr-devel libXi-devel libXcursor-devel libxkbcommon-devel wayland-devel dbus-devel alsa-lib-devel
+        ```
     -   **macOS**: Install Xcode Command Line Tools: `xcode-select --install`
     -   **Windows**: No additional dependencies required
 
-#### Option A: `cargo install`
+#### Clone and run
 
 ```bash
-# Install latest globally
-cargo install --git https://github.com/flowsurface-rs/flowsurface flowsurface
-
-# Run
-flowsurface
-```
-
-#### Option B: Cloning the repo
-
-```bash
-# Clone the repository
-git clone https://github.com/flowsurface-rs/flowsurface
-
+# Clone this fork
+git clone https://github.com/echocmd/flowsurface
 cd flowsurface
 
-# Build and run
-cargo build --release
+# Build and run (release mode recommended for UI responsiveness)
 cargo run --release
 ```
 
