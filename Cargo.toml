@@ -41,7 +41,8 @@ iced = { version = "0.14.0", default-features = false, features = [
     "advanced",
     "unconditional-rendering",
     "crisp",
-    # x11/wayland intentionally omitted: Linux display backends, not needed on macOS
+    "x11",
+    "wayland",
 ] }
 iced_core.workspace = true
 chrono.workspace = true
@@ -62,7 +63,6 @@ rodio = { version = "0.20.1", default-features = false, features = [ "wav" ]}
 exchange = { version = "0.1.0", path = "exchange", package = "flowsurface-exchange" }
 data = { version = "0.1.0", path = "data", package = "flowsurface-data" }
 kand = { version = "0.2", default-features = false, features = ["f64", "i32", "check"] }
-qta = { path = "../../eon/mql5/crates/qta" }
 
 [features]
 debug = ["iced/hot"]
