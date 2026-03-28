@@ -95,6 +95,70 @@ cargo build --release
 cargo run --release
 ```
 
+## Open Deviation Bars (ODB) — Local ClickHouse Setup
+
+Open Deviation Bars are range bars that close when price deviates a configurable percentage from the bar's open.
+Their microstructure data (trade count, OFI, intensity) is pre-computed by the
+[opendeviationbar-py](https://github.com/terrylica/opendeviationbar-py) sidecar and stored in a local
+[ClickHouse](https://clickhouse.com/) database. Without this database the ODB chart pane will show a
+*"Fetching Klines…"* message indefinitely.
+
+Standard time-based candlestick charts and all other panels work without any database setup.
+
+### Resource usage (Docker container)
+
+| Resource | Idle | Active (Flowsurface querying / ingestion) |
+|----------|----|-------------------------------------------|
+| RAM      | ≤ 500 MB | 1–4 GB (query-dependent) |
+| CPU      | < 1 % | Brief spikes during bulk queries / ingestion |
+| Disk     | Grows with data — plan for several GB per symbol/threshold pair over months |
+
+### Quick start — spin up ClickHouse with Docker
+
+**Requirements:** [Docker](https://docs.docker.com/get-docker/) and
+[Docker Compose](https://docs.docker.com/compose/install/) (v2 / `docker compose` plugin).
+
+```bash
+# 1. Start ClickHouse (runs in the background)
+docker compose up -d
+
+# 2. Verify it is healthy
+docker compose ps
+# The "flowsurface-clickhouse" service should show "healthy".
+
+# 3. Run Flowsurface — it will connect to localhost:8123 by default
+cargo run --release
+```
+
+The `docker-compose.yml` automatically runs `clickhouse/init-db.sql` on first startup, creating the
+`opendeviationbar_cache` database and `open_deviation_bars` table.
+
+### Populate the database
+
+The database starts **empty**. To see ODB charts you need to feed data into it:
+
+```bash
+# Clone and run the Python ingestion tool (requires Python 3.11+)
+git clone https://github.com/terrylica/opendeviationbar-py
+cd opendeviationbar-py
+pip install -e .
+# Follow that project's README to configure and start the sidecar.
+# It will listen to Binance and write computed bars to your local ClickHouse.
+```
+
+### Override the ClickHouse connection
+
+The application reads two environment variables:
+
+| Variable              | Default     | Example override        |
+|-----------------------|-------------|-------------------------|
+| `FLOWSURFACE_CH_HOST` | `localhost` | `192.168.1.10`          |
+| `FLOWSURFACE_CH_PORT` | `8123`      | `18123`                 |
+
+```bash
+FLOWSURFACE_CH_HOST=192.168.1.10 FLOWSURFACE_CH_PORT=18123 cargo run --release
+```
+
 ### Credits and thanks to
 
 -   [Kraken Desktop](https://www.kraken.com/desktop) (formerly [Cryptowatch](https://blog.kraken.com/product/cryptowatch-to-sunset-kraken-pro-to-integrate-cryptowatch-features)), the main inspiration that sparked this project

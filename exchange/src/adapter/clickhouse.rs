@@ -5,7 +5,7 @@
 //! is just the base symbol name like "BTCUSDT".
 //!
 //! Environment variables:
-//!   FLOWSURFACE_CH_HOST (default: "bigblack")
+//!   FLOWSURFACE_CH_HOST (default: "localhost")
 //!   FLOWSURFACE_CH_PORT (default: 8123)
 
 use super::{
@@ -235,7 +235,7 @@ pub fn odb_symbol_filter() -> Option<&'static [String]> {
 }
 
 static CLICKHOUSE_HOST: LazyLock<String> = LazyLock::new(|| {
-    std::env::var("FLOWSURFACE_CH_HOST").unwrap_or_else(|_| "bigblack".to_string())
+    std::env::var("FLOWSURFACE_CH_HOST").unwrap_or_else(|_| "localhost".to_string())
 });
 
 static OUROBOROS_MODE: LazyLock<String> = LazyLock::new(|| {
