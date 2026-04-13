@@ -66,9 +66,9 @@ Since these binaries are currently unsigned they might get flagged.
 -   [Git version control system](https://git-scm.com/)
 -   System dependencies:
     -   **Linux**:
-        -   Debian/Ubuntu: `sudo apt install build-essential pkg-config libasound2-dev`
-        -   Arch: `sudo pacman -S base-devel alsa-lib`
-        -   Fedora: `sudo dnf install gcc make alsa-lib-devel`
+        -   Debian/Ubuntu: `sudo apt install build-essential pkg-config libasound2-dev libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxkbcommon-dev libwayland-dev libdbus-1-dev`
+        -   Arch / Manjaro: `sudo pacman -S base-devel alsa-lib libx11 libxrandr libxi libxcursor libxkbcommon wayland mesa dbus`
+        -   Fedora: `sudo dnf install gcc make alsa-lib-devel libX11-devel libXrandr-devel libXi-devel libXcursor-devel libxkbcommon-devel wayland-devel dbus-devel mesa-libGL-devel`
     -   **macOS**: Install Xcode Command Line Tools: `xcode-select --install`
     -   **Windows**: No additional dependencies required
 
